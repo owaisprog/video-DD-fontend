@@ -161,7 +161,6 @@ function Thumb({
   return (
     <div className="relative h-16 w-28 shrink-0 overflow-hidden rounded-xl bg-black/5 ring-1 ring-black/10 dark:bg-white/5 dark:ring-white/10">
       {showImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt="" className="h-full w-full object-cover" />
       ) : (
         <div className="grid h-full w-full place-items-center text-black/40 dark:text-white/40">
@@ -232,6 +231,7 @@ function VideoRow({
   onDeletedRefresh,
   uploading,
   onUploadComplete,
+  onAssetsQueued,
 }: {
   r: VideoDataType;
   gridCols: string;
@@ -239,6 +239,7 @@ function VideoRow({
   onDeletedRefresh?: () => void;
   uploading: boolean;
   onUploadComplete?: (videoId: string) => void;
+  onAssetsQueued?: (videoId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [editVideoData, setEditVideoData] = useState<VideoDataType>();
@@ -468,6 +469,7 @@ function VideoRow({
           open={open}
           onClose={() => setOpen(false)}
           onUpdatedRefresh={onDeletedRefresh}
+          onAssetsQueued={onAssetsQueued}
         />
       ) : null}
 
@@ -539,6 +541,9 @@ export function VideosListPanel({
 }: Props) {
   const [draftQuery, setDraftQuery] = useState(query);
 
+  // NEW: local processing ids for edit-queued asset updates
+  const [localUploadingIds, setLocalUploadingIds] = useState<string[]>([]);
+
   useEffect(() => {
     setDraftQuery(query);
   }, [query]);
@@ -568,7 +573,29 @@ export function VideosListPanel({
     ? "grid-cols-[44px_minmax(280px,1.6fr)_1fr_1fr_1fr_0.6fr_0.7fr_0.8fr]"
     : "grid-cols-[44px_minmax(280px,1.6fr)_1fr_1fr_1fr_0.6fr_0.7fr_0.8fr_220px]";
 
-  const uploadingSet = useMemo(() => new Set(uploadingIds), [uploadingIds]);
+  const uploadingSet = useMemo(() => {
+    return new Set([
+      ...uploadingIds.map((id) => String(id)),
+      ...localUploadingIds.map((id) => String(id)),
+    ]);
+  }, [uploadingIds, localUploadingIds]);
+
+  const handleAssetsQueued = (videoId: string) => {
+    setLocalUploadingIds((prev) =>
+      prev.includes(videoId) ? prev : [...prev, videoId],
+    );
+  };
+
+  const handleTrackedUploadComplete = (videoId: string) => {
+    setLocalUploadingIds((prev) => prev.filter((id) => id !== videoId));
+
+    if (onUploadComplete) {
+      onUploadComplete(videoId);
+      return;
+    }
+
+    onDeletedRefresh?.();
+  };
 
   const isLikelyProcessing = (r: VideoDataType) => {
     const createdAtMs = new Date(r.createdAt).getTime();
@@ -658,7 +685,8 @@ export function VideosListPanel({
                 readOnly={readOnly}
                 onDeletedRefresh={onDeletedRefresh}
                 uploading={shouldTrack}
-                onUploadComplete={onUploadComplete}
+                onUploadComplete={handleTrackedUploadComplete}
+                onAssetsQueued={handleAssetsQueued}
               />
             );
           })
@@ -697,7 +725,7 @@ export function VideosListPanel({
             <ChevronLeft className="h-4 w-4" />
           </button>
 
-          <div className="grid h-9 min-w-[72px] place-items-center rounded-xl bg-black/5 px-3 text-sm font-medium text-black ring-1 ring-black/10 dark:bg-white/10 dark:text-white dark:ring-white/10">
+          <div className="grid h-9 min-w-18 place-items-center rounded-xl bg-black/5 px-3 text-sm font-medium text-black ring-1 ring-black/10 dark:bg-white/10 dark:text-white dark:ring-white/10">
             Page {page}
           </div>
 
@@ -726,7 +754,7 @@ export function VideosListPanel({
           <select
             value={limit}
             onChange={(e) => changeLimit(Number(e.target.value))}
-            className={`${controlClass} h-9 min-w-[112px] py-0`}
+            className={`${controlClass} h-9 min-w-28 py-0`}
             aria-label="Rows per page"
           >
             <option value={10}>10 / page</option>

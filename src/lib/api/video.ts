@@ -26,6 +26,18 @@ export const publishVideoInQueue = (payload: FormData) =>
 export const getVideoProgress = (videoId: string) =>
   api.get(`/v1/video/get-video-progress/${videoId}`);
 
+//   NEW: update video assets in queue (video, thumbnail, or both)
+export const updateVideoAssetsInQueue = ({
+  videoId,
+  data,
+}: {
+  videoId: string;
+  data: FormData;
+}) =>
+  api.put(`/v1/video/update-video-assets-in-queue/${videoId}`, data, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+
 // (keep old publish if you still use it elsewhere)
 export const publishVideo = (payload: any) =>
   api.post("/v1/video/publish-video", payload);
@@ -71,7 +83,12 @@ export const updateVideoData = ({
   data,
 }: {
   videoId: string;
-  data: { title: string; description: string; isPublished: boolean };
+  data: {
+    title: string;
+    description: string;
+    isPublished?: boolean;
+    tags?: string[];
+  };
 }) => api.patch(`/v1/video/edit-video-data/${videoId}`, data);
 
 // update video file

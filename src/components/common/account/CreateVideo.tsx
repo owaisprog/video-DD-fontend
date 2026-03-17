@@ -10,7 +10,7 @@ import {
   Tag,
 } from "lucide-react";
 import { useForm } from "react-hook-form";
-import { publishVideoInQueue } from "../../../lib/api/video"; //   changed
+import { publishVideoInQueue } from "../../../lib/api/video";
 import toast, { Toaster } from "react-hot-toast";
 import { extractMessageFromHtml } from "../../../utils/extractMessageFromHtml";
 import { VideoPlayer } from "../../../components/media/VideoPlayer";
@@ -18,15 +18,13 @@ import { VideoPlayer } from "../../../components/media/VideoPlayer";
 type ModalProps = {
   open: boolean;
   onClose: () => void;
-
-  //   now returns queued videoId
   onSuccess?: (videoId: string) => void;
 };
 
 type FormType = {
   title: string;
   description: string;
-  thumbnail: FileList;
+  thumbnail?: FileList;
   isPublished: boolean;
   video: FileList;
 };
@@ -48,6 +46,7 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
   const [tagInput, setTagInput] = useState("");
 
   const normalizeTag = (t: string) => t.trim().replace(/^#+/, "");
+
   const addTagsFromRaw = (raw: string) => {
     const parts = raw.split(",").map(normalizeTag).filter(Boolean);
     if (parts.length === 0) return;
@@ -63,6 +62,7 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
           next.push(p);
         }
       }
+
       return next;
     });
   };
@@ -91,13 +91,16 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
       setThumbnailUrl(null);
       return;
     }
+
     const url = URL.createObjectURL(thumbnailFile);
     setThumbnailUrl(url);
+
     return () => URL.revokeObjectURL(url);
   }, [thumbnailFile]);
 
   useEffect(() => {
     if (!videoFile) return;
+
     const url = URL.createObjectURL(videoFile);
     return () => URL.revokeObjectURL(url);
   }, [videoFile]);
@@ -108,8 +111,11 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
       formData.append("title", data.title);
       formData.append("description", data.description);
       formData.append("video", data.video[0]);
-      formData.append("thumbnail", data.thumbnail[0]);
       formData.append("isPublished", data.isPublished ? "true" : "false");
+
+      if (data.thumbnail?.[0]) {
+        formData.append("thumbnail", data.thumbnail[0]);
+      }
 
       tags.forEach((t) => formData.append("tags", t));
 
@@ -125,10 +131,9 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
           position: "bottom-right",
         });
 
-        // close modal first
         setTimeout(() => {
           handleClose();
-          onSuccess?.(String(videoId)); //   pass queued id to parent
+          onSuccess?.(String(videoId));
         }, 300);
       } else {
         toast.error("Failed to queue video. Please try again.", {
@@ -139,7 +144,9 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
       const html = err?.response?.data;
 
       if (typeof html === "string") {
-        toast.error(extractMessageFromHtml(html), { position: "bottom-right" });
+        toast.error(extractMessageFromHtml(html), {
+          position: "bottom-right",
+        });
       } else {
         toast.error(err?.message || "Something went wrong. Please try again.", {
           position: "bottom-right",
@@ -204,7 +211,7 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
                   </div>
 
                   <p
-                    className={`${videoFile ? "hidden" : ""}  mt-2 text-sm text-black/60 dark:text-white/60`}
+                    className={`${videoFile ? "hidden" : ""} mt-2 text-sm text-black/60 dark:text-white/60`}
                   >
                     Your videos will be private until you publish them.
                   </p>
@@ -262,15 +269,16 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
               <div
                 className={[
                   "mt-4 rounded-2xl border bg-black/3 p-5 dark:bg-white/5",
-                  errors.thumbnail
-                    ? "border-red-500/60 ring-1 ring-red-500/30"
-                    : "border-black/10 dark:border-white/10",
+                  "border-black/10 dark:border-white/10",
                 ].join(" ")}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <ImageIcon className="h-4 w-4 text-black/70 dark:text-white/70" />
                     <p className="text-sm font-medium">Thumbnail</p>
+                    <span className="text-xs text-black/50 dark:text-white/50">
+                      (optional)
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -282,12 +290,7 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
                     >
                       {thumbnailUrl ? "Change image" : "Select image"}
                       <input
-                        {...register("thumbnail", {
-                          validate: (files) =>
-                            files && files.length > 0
-                              ? true
-                              : "thumbnail is required",
-                        })}
+                        {...register("thumbnail")}
                         type="file"
                         accept="image/*"
                         className="hidden"
@@ -322,22 +325,22 @@ export const CreateVideo = ({ open, onClose, onSuccess }: ModalProps) => {
                       />
                     ) : (
                       <div className="grid h-full w-full place-items-center text-black/50 dark:text-white/50">
-                        <div className="flex items-center gap-2">
-                          <ImageIcon className="h-5 w-5" />
-                          <span className="text-sm font-semibold">
-                            Select one thumbnail
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <div className="flex items-center gap-2">
+                            <ImageIcon className="h-5 w-5" />
+                            <span className="text-sm font-semibold">
+                              Thumbnail is optional
+                            </span>
+                          </div>
+                          <span className="px-4 text-xs text-black/45 dark:text-white/45">
+                            If you don’t upload one, a thumbnail will be
+                            generated automatically from the video.
                           </span>
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {errors.thumbnail?.message && (
-                  <p className="mt-2 text-xs font-medium text-red-600">
-                    {errors.thumbnail.message}
-                  </p>
-                )}
               </div>
             </div>
 

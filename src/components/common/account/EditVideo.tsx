@@ -11,8 +11,7 @@ import {
 } from "lucide-react";
 import { useForm } from "react-hook-form";
 import {
-  updateThumbnail,
-  updateVideo,
+  updateVideoAssetsInQueue,
   updateVideoData,
 } from "../../../lib/api/video";
 import toast, { Toaster } from "react-hot-toast";
@@ -24,14 +23,14 @@ type ModalProps = {
   data: VideoDataType;
   open: boolean;
   onClose: () => void;
-  //   new: refresh parent list after save
   onUpdatedRefresh?: () => void;
+  onAssetsQueued?: (videoId: string) => void;
 };
 
 type FormType = {
   title: string;
   description: string;
-  thumbnail: FileList | string;
+  thumbnail?: FileList | string;
   isPublished: boolean;
   video?: FileList;
 };
@@ -49,6 +48,7 @@ export const EditVideo = ({
   open,
   onClose,
   onUpdatedRefresh,
+  onAssetsQueued,
 }: ModalProps) => {
   const videoId = data._id;
 
@@ -64,17 +64,17 @@ export const EditVideo = ({
       isPublished: data.isPublished,
       title: data.title,
       description: data.description,
-      thumbnail: data.thumbnail,
+      thumbnail: data.thumbnail || undefined,
     },
     mode: "onTouched",
   });
 
-  //   tags
   const initialTags = useMemo<string[]>(
     () =>
       Array.isArray((data as any).tags) ? ((data as any).tags as string[]) : [],
     [data],
   );
+
   const [tags, setTags] = useState<string[]>(initialTags);
   const [tagInput, setTagInput] = useState("");
 
@@ -128,14 +128,13 @@ export const EditVideo = ({
       title: data.title,
       description: data.description,
       isPublished: data.isPublished,
-      thumbnail: data.thumbnail,
+      thumbnail: data.thumbnail || undefined,
     });
 
     setThumbnailUrl(data.thumbnail || null);
     setVideoUrl(existingVideoUrl || null);
     resetField("video");
 
-    //   reset tags from data
     setTags(initialTags);
     setTagInput("");
   }, [open, data, existingVideoUrl, reset, resetField, initialTags]);
@@ -173,14 +172,13 @@ export const EditVideo = ({
       title: data.title,
       description: data.description,
       isPublished: data.isPublished,
-      thumbnail: data.thumbnail,
+      thumbnail: data.thumbnail || undefined,
     });
     resetField("video");
 
     setThumbnailUrl(data.thumbnail || null);
     setVideoUrl(existingVideoUrl || null);
 
-    //   reset tags
     setTags(initialTags);
     setTagInput("");
 
@@ -188,49 +186,55 @@ export const EditVideo = ({
   };
 
   const isFileListWithFile = (value: any): value is FileList =>
-    value instanceof FileList && value.length > 0;
+    Boolean(value) &&
+    typeof value !== "string" &&
+    typeof value.length === "number" &&
+    value.length > 0;
 
   const onSubmit = async (formValues: FormType) => {
     try {
       const requests: Promise<any>[] = [];
 
-      /* ---------------- VIDEO ---------------- */
       const videoChanged = isFileListWithFile(formValues.video);
-
-      if (videoChanged) {
-        const fd = new FormData();
-        fd.append("video", formValues?.video![0]);
-        requests.push(updateVideo({ videoId, video: fd }));
-      }
-
-      /* ---------------- THUMBNAIL ---------------- */
       const thumbnailChanged = isFileListWithFile(formValues.thumbnail);
+      const assetChanged = videoChanged || thumbnailChanged;
 
-      if (thumbnailChanged) {
-        const fd = new FormData();
-        fd.append("thumbnail", formValues.thumbnail![0]);
-        requests.push(updateThumbnail({ videoId, data: fd }));
-      }
-
-      /* ---------------- METADATA (+ TAGS) ---------------- */
       const metaChanged =
         formValues.title !== data.title ||
         formValues.description !== data.description ||
         formValues.isPublished !== data.isPublished ||
         !sameTags(tags, initialTags);
 
+      if (assetChanged) {
+        const fd = new FormData();
+
+        if (videoChanged) {
+          fd.append("video", formValues.video![0]);
+        }
+
+        if (thumbnailChanged) {
+          fd.append("thumbnail", formValues.thumbnail![0]);
+        }
+
+        requests.push(
+          updateVideoAssetsInQueue({
+            videoId,
+            data: fd,
+          }),
+        );
+      }
+
       if (metaChanged) {
         const payload = {
           title: formValues.title,
           description: formValues.description,
           isPublished: formValues.isPublished,
-          tags, //   send tags
+          tags,
         };
 
         requests.push(updateVideoData({ videoId, data: payload }));
       }
 
-      /* ---------------- NO CHANGES ---------------- */
       if (requests.length === 0) {
         toast("No changes to save", { position: "bottom-right" });
         return;
@@ -238,13 +242,26 @@ export const EditVideo = ({
 
       await Promise.all(requests);
 
-      toast.success("Video Updated Successfully", {
-        position: "bottom-right",
-      });
+      if (assetChanged && metaChanged) {
+        toast.success("Video updated. Asset processing started.", {
+          position: "bottom-right",
+        });
+      } else if (assetChanged) {
+        toast.success("Video asset update queued successfully.", {
+          position: "bottom-right",
+        });
+      } else {
+        toast.success("Video updated successfully.", {
+          position: "bottom-right",
+        });
+      }
+
+      if (assetChanged) {
+        onAssetsQueued?.(String(videoId));
+      }
 
       setTimeout(() => {
         handleClose();
-        //   refresh parent list
         onUpdatedRefresh?.();
       }, 300);
     } catch (err: any) {
@@ -274,7 +291,6 @@ export const EditVideo = ({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-8">
       <Toaster position="bottom-right" toastOptions={{ duration: 4000 }} />
 
-      {/* Backdrop */}
       <button
         aria-label="Close modal"
         onClick={handleClose}
@@ -282,9 +298,7 @@ export const EditVideo = ({
         disabled={isSubmitting}
       />
 
-      {/* Panel */}
       <div className="relative flex h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-light-background text-black shadow-2xl ring-1 ring-black/10 dark:bg-dark-background dark:text-white dark:ring-white/10">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-black/10 px-6 py-4 dark:border-white/10">
           <div>
             <h3 className="text-lg font-semibold">Edit video</h3>
@@ -308,9 +322,7 @@ export const EditVideo = ({
           onSubmit={handleSubmit(onSubmit)}
           className="flex flex-1 flex-col overflow-hidden"
         >
-          {/* Content */}
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto p-6 md:flex-row">
-            {/* Left: Upload area */}
             <div className="w-full md:w-[44%]">
               <div
                 className={[
@@ -337,7 +349,6 @@ export const EditVideo = ({
                     Your videos will be private until you publish them.
                   </p>
 
-                  {/* Register video */}
                   <label
                     className={[
                       "mt-6 inline-flex cursor-pointer items-center gap-2 rounded-full border border-black/10 bg-light px-6 py-2 text-sm font-semibold text-black shadow-sm hover:bg-black/5 focus:outline-none focus-visible:ring-2 focus-visible:ring-black/20 dark:border-white/10 dark:bg-white/10 dark:text-white dark:hover:bg-white/15 dark:focus-visible:ring-white/40",
@@ -395,19 +406,14 @@ export const EditVideo = ({
                 </div>
               </div>
 
-              {/* Thumbnail picker */}
-              <div
-                className={[
-                  "mt-4 rounded-2xl border bg-black/3 p-5 dark:bg-white/5",
-                  errors.thumbnail
-                    ? "border-red-500/60 ring-1 ring-red-500/30"
-                    : "border-black/10 dark:border-white/10",
-                ].join(" ")}
-              >
+              <div className="mt-4 rounded-2xl border border-black/10 bg-black/3 p-5 dark:border-white/10 dark:bg-white/5">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <ImageIcon className="h-4 w-4 text-black/70 dark:text-white/70" />
                     <p className="text-sm font-medium">Thumbnail</p>
+                    <span className="text-xs text-black/50 dark:text-white/50">
+                      (optional)
+                    </span>
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -419,16 +425,7 @@ export const EditVideo = ({
                     >
                       {hasThumbnailPreview ? "Change image" : "Select image"}
                       <input
-                        {...register("thumbnail", {
-                          validate: (value: any) => {
-                            if (typeof value === "string") {
-                              return value ? true : "thumbnail is required";
-                            }
-                            if (value && value.length > 0) return true;
-                            if (hasExistingThumbnail) return true;
-                            return "thumbnail is required";
-                          },
-                        })}
+                        {...register("thumbnail")}
                         type="file"
                         accept="image/*"
                         className="hidden"
@@ -463,29 +460,27 @@ export const EditVideo = ({
                       />
                     ) : (
                       <div className="grid h-full w-full place-items-center text-black/50 dark:text-white/50">
-                        <div className="flex items-center gap-2">
-                          <ImageIcon className="h-5 w-5" />
-                          <span className="text-sm font-semibold">
-                            Select one thumbnail
+                        <div className="flex flex-col items-center gap-2 text-center">
+                          <div className="flex items-center gap-2">
+                            <ImageIcon className="h-5 w-5" />
+                            <span className="text-sm font-semibold">
+                              Thumbnail is optional
+                            </span>
+                          </div>
+                          <span className="px-4 text-xs text-black/45 dark:text-white/45">
+                            You can update the video without changing the
+                            thumbnail.
                           </span>
                         </div>
                       </div>
                     )}
                   </div>
                 </div>
-
-                {errors.thumbnail?.message && (
-                  <p className="mt-2 text-xs font-medium text-red-600">
-                    {errors.thumbnail.message}
-                  </p>
-                )}
               </div>
             </div>
 
-            {/* Right: Form fields */}
             <div className="w-full md:w-[56%]">
               <div className="space-y-5">
-                {/* Title */}
                 <div className="rounded-2xl border border-black/10 bg-black/3 p-5 dark:border-white/10 dark:bg-white/5">
                   <label className="flex items-center gap-2 text-sm font-medium">
                     <Type className="h-4 w-4 text-black/70 dark:text-white/70" />
@@ -516,7 +511,6 @@ export const EditVideo = ({
                   )}
                 </div>
 
-                {/* Description */}
                 <div className="rounded-2xl border border-black/10 bg-black/3 p-5 dark:border-white/10 dark:bg-white/5">
                   <label className="flex items-center gap-2 text-sm font-medium">
                     <AlignLeft className="h-4 w-4 text-black/70 dark:text-white/70" />
@@ -553,7 +547,6 @@ export const EditVideo = ({
                   </p>
                 </div>
 
-                {/*   Tags */}
                 <div className="rounded-2xl border border-black/10 bg-black/3 p-5 dark:border-white/10 dark:bg-white/5">
                   <label className="flex items-center gap-2 text-sm font-medium">
                     <Tag className="h-4 w-4 text-black/70 dark:text-white/70" />
@@ -611,7 +604,6 @@ export const EditVideo = ({
                   </p>
                 </div>
 
-                {/* Publish toggle */}
                 <div className="rounded-2xl border border-black/10 bg-black/3 p-5 dark:border-white/10 dark:bg-white/5">
                   <div className="flex items-center justify-between gap-4">
                     <div>
@@ -642,7 +634,6 @@ export const EditVideo = ({
             </div>
           </div>
 
-          {/* Footer actions */}
           <div className="border-t border-black/10 px-6 py-4 dark:border-white/10">
             <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-center text-xs leading-relaxed text-black/60 sm:text-left dark:text-white/60">
